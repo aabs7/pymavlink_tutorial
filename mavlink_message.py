@@ -16,11 +16,13 @@ from pymavlink import mavutil
 #  it's possible to add a new output port in http:192.168.2.2:2770/mavproxy as a new line.
 #  E.g: --out udpbcast:192.168.2.255:yourport
 master = mavutil.mavlink_connection('tcp:127.0.0.1:5762')
-
+count = 0
 # Get some information !
 while True:
-    try:
-        print(master.recv_match().to_dict())
-    except:
-        pass
-    time.sleep(0.1)
+    msg = master.recv_match()
+    if not msg:
+        continue
+    else:
+        print(msg)
+        if(msg.get_type() == 'ATTITUDE'):
+            print("\r\n") 
