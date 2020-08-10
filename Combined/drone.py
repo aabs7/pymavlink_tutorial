@@ -1,30 +1,18 @@
 # Import mavutil
 from pymavlink import mavutil
 from pymavlink import mavwp
+from pymavlink.dialects.v10 import ardupilotmega
 
 import time
 
 #Import threading for reading mavlink messages
 import threading
 
+class MavlinkMessage:
+    def __init__(self,master):
 
-
-class Drone():
-    def __init__(self,port):
-        #start connection on the given port
-        self.master = mavutil.mavlink_connection(port)
-        self._home = None
-        self.MAV_STATE = {
-                0 : 'UNINIT',
-                1 : 'BOOT',
-                2 : 'CALIBRATING',
-                3 : 'STANDBY',
-                4 : 'ACTIVE',
-                5 : 'CRITICAL',
-                6 : 'EMERGENCY',
-                7 : 'POWEROFF',
-                8 : 'FLIGHT_TERMINATION'
-            }
+        #master connection
+        self.master = master
         
         ## The data coming from mavlink (not all the data are present)
         #'GLOBAL_POSITION_INT'
@@ -43,7 +31,6 @@ class Drone():
         self._level = None
 
         #'VFR_HUD'
-        self._heading = None
         self._airspeed = None
         self._groundspeed = None
         self._throttle = None
@@ -67,25 +54,139 @@ class Drone():
         self._fix_type = None
 
         #'EKF_STATUS_REPORT'
+        self._ekf_poshorizabs = False
+        self._ekf_constposmode = False
+        self._ekf_predposhorizabs = False
         self._ekf_flag = None
 
         #'LOCAL_POSITION_NED'
         self._north = None
         self._east = None
         self._down = None
-        
+
+        #'HEARTBEAT'
+        self._flightmode = None
+        self._armed = False
+        self._system_status = None
+        self._autopilot_type = None  # PX4, ArduPilot, etc.
+        self._vehicle_type = None  # quadcopter, plane, etc.
+
+        #'ATTITUDE'
+        self._roll = None
+        self._pitch = None
+        self._yaw = None
+        self._rollspeed = None
+        self._pitchspeed = None
+        self._yawspeed = None
+
+        self.messages = {
+            'GLOBAL_POSITION_INT'   :self.__read_global_pos_int,
+            'SYS_STATUS'            :self.__read_system_status,
+            'VFR_HUD'               :self.__read_vfr_hud,
+            'SERVO_OUTPUT_RAW'      :self.__read_servo_output_raw,
+            'GPS_RAW_INT'          :self.__read_gps_raw_int,
+            'EKF_STATUS_REPORT'     :self.__read_ekf_status_report,
+            'LOCAL_POSITION_NED'    :self.__read_local_position_ned,
+            'HEARTBEAT'             :self.__read_heartbeat,
+            'ATTITUDE'              :self.__read_attitude
+        }
 
         #start new thread for getting data whenever object is called
-        self.data_read = threading.Thread(target = self.update)
+        self.data_read = threading.Thread(target = self.__update)
+        self.data_read.daemon = True    # In daemon mode so that ctrl + c will close the program
         self.data_read.start()
-    
-    def update(self):
+        
+    def __update(self): 
         while True:
+            #print("Here")
             msg = self.master.recv_match()
+
             if not msg:
                 continue
+            
+            function = self.messages.get(msg.get_type(),lambda x:"Invalid")
+            function(msg)
+            
 
+    def __read_global_pos_int(self,msg):
+        self._lat = msg.lat * 1e-7
+        self._lon = msg.lon * 1e-7
+        self._alt = msg.alt * 1e-3
+        self._relative_alt = msg.relative_alt
+        self._vx = msg.vx
+        self._vy = msg.vy
+        self._vz = msg.vz
+        self._heading = int(msg.hdg * 1e-2)
+
+    def __read_system_status(self,msg):
+        self._voltage = msg.voltage_battery
+        self._current = msg.current_battery
+        self._level = msg.battery_remaining
+
+    def __read_vfr_hud(self,msg):
+        self._airspeed = msg.airspeed
+        self._groundspeed = msg.groundspeed
+        self._throttle = msg.throttle
+        self._alt = msg.alt
+        self._climb = msg.climb
         
+    def __read_servo_output_raw(self,msg):
+        self._servo1_raw = msg.servo1_raw
+        self._servo2_raw = msg.servo2_raw
+        self._servo3_raw = msg.servo3_raw
+        self._servo4_raw = msg.servo4_raw
+        self._servo5_raw = msg.servo5_raw
+        self._servo6_raw = msg.servo6_raw
+        self._servo7_raw = msg.servo7_raw
+        self._servo8_raw = msg.servo8_raw
+
+    def __read_gps_raw_int(self,msg):
+        self._eph = msg.eph
+        self._epv = msg.epv
+        self._satellites_visible = msg.satellites_visible
+        self._fix_type = msg.fix_type
+
+    def __read_ekf_status_report(self,msg):
+        ekf_flags = msg.flags
+        # boolean: EKF's horizontal position (absolute) estimate is good
+        self._ekf_poshorizabs = (ekf_flags & ardupilotmega.EKF_POS_HORIZ_ABS) > 0
+        # boolean: EKF is in constant position mode and does not know it's absolute or relative position
+        self._ekf_constposmode = (ekf_flags & ardupilotmega.EKF_CONST_POS_MODE) > 0
+        # boolean: EKF's predicted horizontal position (absolute) estimate is good
+        self._ekf_predposhorizabs = (ekf_flags & ardupilotmega.EKF_PRED_POS_HORIZ_ABS) > 0
+        
+
+
+    def __read_local_position_ned(self,msg):
+        self._north = msg.y
+        self._east = msg.x
+        self._down = msg.z
+
+    def __read_heartbeat(self,msg):
+        if self.master.probably_vehicle_heartbeat(msg):
+            self._flightmode = mavutil.mode_mapping_acm[msg.custom_mode]
+            self._armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
+            self._system_status = msg.system_status
+            self._autopilot_type = msg.autopilot
+            self._vehicle_type = msg.type  # quadcopter, plane, etc.
+            
+    def __read_attitude(self,msg):
+        self._roll = msg.roll
+        self._pitch = msg.pitch
+        self._yaw = msg.yaw
+        self._rollspeed = msg.rollspeed
+        self._pitchspeed = msg.pitchspeed
+        self._yawspeed = msg.yawspeed
+     
+
+
+class Drone(MavlinkMessage):
+    def __init__(self,port):
+        #start connection on the given port
+        self.master = mavutil.mavlink_connection(port)
+        self._home = None
+        MavlinkMessage.__init__(self,self.master)
+
     def set_flight_mode(self,mode):
         self.master.wait_heartbeat()
         mavutil.mavfile.set_mode(self.master,mode,0,0)
@@ -205,8 +306,131 @@ class Drone():
             self.master.mav.send(wp.wp(msg.seq))
             print('Sending waypoint {0}'.format(msg.seq))
 
+    @property
+    def is_armable(self):
+        # check that we have a GPS fix
+        # check that EKF pre-arm is complete
+        return (self._fix_type > 1) and self._ekf_predposhorizabs
 
+    @property
+    def ekf_ok(self):
+        # use same check that ArduCopter::system.pde::position_ok() is using
+        if self._armed:
+            return self._ekf_poshorizabs and not self._ekf_constposmode
+        else:
+            return self._ekf_poshorizabs or self._ekf_predposhorizabs
 
+    @property
+    def system_status(self):
+        return {
+            0: 'UNINIT',
+            1: 'BOOT',
+            2: 'CALIBRATING',
+            3: 'STANDBY',
+            4: 'ACTIVE',
+            5: 'CRITICAL',
+            6: 'EMERGENCY',
+            7: 'POWEROFF',
+            8 : 'FLIGHT_TERMINATION'
+        }.get(self._system_status, None)
 
-
+    @property
+    def is_armed(self):
+        return self._armed
     
+    @property
+    def flight_mode(self):
+        return self._flightmode
+
+    @property
+    def heading(self):
+        return self._heading
+    
+    @property
+    def groundspeed(self):
+        return self._groundspeed
+
+    @property
+    def airspeed(self):
+        return self._airspeed
+
+    @property
+    def velocity(self):
+        return [self._vx, self._vy, self._vz]
+    
+    @property
+    def battery(self):
+        return Battery(self._voltage,self._current,self._level)
+
+    @property
+    def attitude(self):
+        return Attitude(self._roll,self._pitch,self._yaw,self._rollspeed,self._pitchspeed,self._yawspeed)
+
+    @property
+    def location(self):
+        return Location(self._lat,self._lon,self._alt,self._relative_alt,self._north,self._east,self._down)
+
+   
+
+class Battery():
+
+    def __init__(self, voltage, current, level):
+        self.voltage = voltage / 1000.0
+        if current == -1:
+            self.current = None
+        else:
+            self.current = current #/ 100.0
+        if level == -1:
+            self.level = None
+        else:
+            self.level = level
+    def __str__(self):
+        return "Battery:voltage={},current={},level={}".format(self.voltage, self.current,
+                                                               self.level)
+
+
+class Location():
+
+    def __init__(self,lat,lon,alt,altR,north,east,down):
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.altR = altR
+        self.north = north
+        self.east = east
+        self.down = down
+
+    def __str__(self):
+        return "LocationGlobal:lat=%s,lon=%s,altR=%s,alt=%s  ||  LocationLocal:north=%s,east=%s,down=%s" % (self.lat, self.lon, self.altR,self.alt,self.north, self.east, self.down)
+
+
+class GPSInfo():
+    def __init__(self, eph, epv, fix_type, satellites_visible):
+        self.eph = eph
+        self.epv = epv
+        self.fix_type = fix_type
+        self.satellites_visible = satellites_visible
+
+    def __str__(self):
+        return "GPSInfo:fix=%s,num_sat=%s" % (self.fix_type, self.satellites_visible)
+
+class Attitude():
+    def __init__(self, roll, pitch, yaw,rollspeed,pitchspeed,yawspeed):
+        self.pitch = pitch
+        self.yaw = yaw
+        self.roll = roll
+        self.rollspeed = rollspeed
+        self.pitchspeed = pitchspeed
+        self.yawspeed = yawspeed
+
+    def __str__(self):
+        return "Attitude:roll=%s,pitch=%s,yaw=%s" % (self.roll, self.pitch,self.yaw)
+
+class Velocity():
+    def __init__(self,vx,vy,vz):
+        self.vx = vx
+        self.vy = vy
+        self.vz = vz
+
+    def __str__(self):
+        return "Velocity:vx=%s,vy=%s,vz=%s" % (self.vx, self.vy,self.vz)
