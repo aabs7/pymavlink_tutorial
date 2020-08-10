@@ -4,22 +4,87 @@ from pymavlink import mavwp
 
 import time
 
-#Import regarding scheduler tasks
-from apscheduler.schedulers.background import BackgroundScheduler
+#Import threading for reading mavlink messages
+import threading
+
 
 
 class Drone():
     def __init__(self,port):
+        #start connection on the given port
         self.master = mavutil.mavlink_connection(port)
         self._home = None
+        self.MAV_STATE = {
+                0 : 'UNINIT',
+                1 : 'BOOT',
+                2 : 'CALIBRATING',
+                3 : 'STANDBY',
+                4 : 'ACTIVE',
+                5 : 'CRITICAL',
+                6 : 'EMERGENCY',
+                7 : 'POWEROFF',
+                8 : 'FLIGHT_TERMINATION'
+            }
         
-        # define background scheduler and start a background process to read drone messages
-        sched = BackgroundScheduler()
-        sched.add_job(self.update, 'interval', seconds=0.5)
-        sched.start()
+        ## The data coming from mavlink (not all the data are present)
+        #'GLOBAL_POSITION_INT'
+        self._lat = None
+        self._lon = None
+        self._alt = None
+        self._relative_alt = None
+        self._vx = None
+        self._vy = None
+        self._vz = None
+        self._heading = None
+
+        #'SYS_STATUS'
+        self._voltage = None
+        self._current = None
+        self._level = None
+
+        #'VFR_HUD'
+        self._heading = None
+        self._airspeed = None
+        self._groundspeed = None
+        self._throttle = None
+        self._alt = None
+        self._climb = None
+
+        #'SERVO_OUTPUT_RAW'
+        self._servo1_raw = None
+        self._servo2_raw = None
+        self._servo3_raw = None
+        self._servo4_raw = None
+        self._servo5_raw = None
+        self._servo6_raw = None
+        self._servo7_raw = None
+        self._servo8_raw = None
+
+        #'GPS_RAW_INIT'
+        self._eph = None
+        self._epv = None
+        self._satellites_visible = None
+        self._fix_type = None
+
+        #'EKF_STATUS_REPORT'
+        self._ekf_flag = None
+
+        #'LOCAL_POSITION_NED'
+        self._north = None
+        self._east = None
+        self._down = None
+        
+
+        #start new thread for getting data whenever object is called
+        self.data_read = threading.Thread(target = self.update)
+        self.data_read.start()
     
     def update(self):
-        print("hello, Here I will read all mavlink message")
+        while True:
+            msg = self.master.recv_match()
+            if not msg:
+                continue
+
         
     def set_flight_mode(self,mode):
         self.master.wait_heartbeat()
