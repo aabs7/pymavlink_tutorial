@@ -184,11 +184,11 @@ class Drone(MavlinkMessage):
     def __init__(self,port):
         #start connection on the given port
         self.master = mavutil.mavlink_connection(port)
+        self.master.wait_heartbeat()
         self._home = None
         MavlinkMessage.__init__(self,self.master)
 
     def set_flight_mode(self,mode):
-        self.master.wait_heartbeat()
         mavutil.mavfile.set_mode(self.master,mode,0,0)
     
     def arm(self):
@@ -205,7 +205,7 @@ class Drone(MavlinkMessage):
                                     0,
                                     0, 0, 0, 0, 0, 0, 0)
     
-    def arm_and_takeoff(self,altitude,auto_mode = True):
+    def arm_and_takeoff(self,altitude,auto_mode = True,wait = True):
         self.set_flight_mode('GUIDED')
         self.arm()
         self.master.mav.command_long_send(0, 0, 
@@ -214,6 +214,7 @@ class Drone(MavlinkMessage):
 
         if(auto_mode):
             self.set_flight_mode('AUTO')
+        
 
     def set_home(self,home_location=None):
     
@@ -233,7 +234,6 @@ class Drone(MavlinkMessage):
                         home_location[2])  # alt
 
     def mission_read(self, file_name = 'mission.txt'):
-        self.master.wait_heartbeat()
 
         #ask for mission count
         self.master.waypoint_request_list_send()
