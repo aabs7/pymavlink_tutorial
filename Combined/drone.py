@@ -339,6 +339,9 @@ class Drone(MavlinkMessage):
 
     def mission_upload(self, file_name = 'mission.txt'):
         wp = mavwp.MAVWPLoader()
+        #clear waypoints before uploading, so that new waypoints can be added
+        self._waypoints.clear()
+        mission_count = 0
         with open(file_name) as f:
             for i, line in enumerate(f):
                 if i == 0:
@@ -358,10 +361,23 @@ class Drone(MavlinkMessage):
                     ln_y=float(linearray[9])
                     ln_z=float(linearray[10])
                     ln_autocontinue = float(linearray[11].strip())
-                    if(i == 1):
-                        self._home.lat = ln_x
-                        self._home.lon = ln_y
-                        self._home.alt = ln_z
+
+                    #store in waypoints
+                    if(ln_command != 22):
+                        if(ln_seq != 0):   #i.e not home location
+                            self._waypoints[mission_count] = {
+                                'lat':ln_x,
+                                'lng':ln_y,
+                                'alt':ln_z,
+                                'command':ln_command
+                            }
+                        else:
+                            self._waypoints[mission_count] = {
+                                                    'lat':ln_x,
+                                                    'lng':ln_y
+                                                    }
+                        mission_count += 1
+
                     p = mavutil.mavlink.MAVLink_mission_item_message(self.master.target_system, self.master.target_component, ln_seq, ln_frame,
                                                                     ln_command,
                                                                     ln_current, ln_autocontinue, ln_param1, ln_param2, ln_param3, ln_param4, ln_x, ln_y, ln_z)
