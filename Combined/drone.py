@@ -126,7 +126,7 @@ class MavlinkMessage:
         self._lat = msg.lat * 1e-7
         self._lon = msg.lon * 1e-7
         self._alt = msg.alt * 1e-3
-        self._relative_alt = msg.relative_alt
+        self._relative_alt = msg.relative_alt * 1e-3
         self._vx = msg.vx
         self._vy = msg.vy
         self._vz = msg.vz
@@ -215,7 +215,10 @@ class Drone(MavlinkMessage):
         #it is not advisable to even look for mavlink message inside methods of this class.
         #instead, check for the mavlink message inside MavlinkMessage class by adding the respective message.
         self.master.wait_heartbeat()
-        self._home = Location()
+        #set home location
+        msg = self.master.recv_match(type = 'GLOBAL_POSITION_INT',blocking = True)
+        self._home = Location(msg.lat*1e-7,msg.lon*1e-7,msg.alt*1e-3,msg.relative_alt*1e-3)
+        print("Home location set to lat = ", self._home.lat," lon = ",self._home.lon, "alt = ",self._home.alt)
         MavlinkMessage.__init__(self,self.master)
         #list to store all the command currently available in the vehicle
         self.cmds = []
@@ -242,9 +245,7 @@ class Drone(MavlinkMessage):
     
     def arm_and_takeoff(self,altitude,auto_mode = True):
         self.set_flight_mode('GUIDED')
-        time.sleep(0.01)
         self.arm()
-        time.sleep(0.01)
         self.master.mav.command_long_send(0, 0, 
                                             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
                                             ,0, 0, 0, 0, 0, 0, 0, altitude)
@@ -252,6 +253,11 @@ class Drone(MavlinkMessage):
         if(auto_mode):
             self.set_flight_mode('AUTO')
         
+    def simple_goto(self,location):
+        self.master.mav.mission_item_send(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                                           mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 2, 0, 0,
+                                           0, 0, 0, location.lat, location.lon,
+                                           location.alt)
 
     def set_home(self,home_location=None):
     
@@ -266,16 +272,16 @@ class Drone(MavlinkMessage):
                         0, # param2
                         0, # param3
                         0, # param4
-                        home_location[0], # lat
-                        home_location[1], # lon
-                        home_location[2])  # alt
+                        home_location.lat, # lat
+                        home_location.lon, # lon
+                        home_location.alt)  # alt
 
     def mission_read(self, file_name = 'mission.txt',store_mission = True):
         #ask for mission count
         self.master.waypoint_request_list_send()
 
         #wait for receive mavlink msg type MISSION_COUNT
-        msg = None
+        msg = None  
         while(msg == None):
             msg = self._msg_mission_count
         
@@ -350,7 +356,9 @@ class Drone(MavlinkMessage):
                     ln_z=float(linearray[10])
                     ln_autocontinue = float(linearray[11].strip())
                     if(i == 1):
-                        self._home = (ln_x,ln_y,ln_z)
+                        self._home.lat = ln_x
+                        self._home.lon = ln_y
+                        self._home.alt = ln_z
                     p = mavutil.mavlink.MAVLink_mission_item_message(self.master.target_system, self.master.target_component, ln_seq, ln_frame,
                                                                     ln_command,
                                                                     ln_current, ln_autocontinue, ln_param1, ln_param2, ln_param3, ln_param4, ln_x, ln_y, ln_z)
@@ -360,7 +368,7 @@ class Drone(MavlinkMessage):
         self.set_home()
         #msg = self.master.recv_match(type = ['COMMAND_ACK'],blocking = True)
         #print(msg)
-        print('Set home location: {0} {1}'.format(self._home[0],self._home[1]))
+        print('Set home location: {0} {1}'.format(self._home.lat,self._home.lon))
         time.sleep(1)
 
         #send waypoint to airframe
