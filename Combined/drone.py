@@ -87,7 +87,7 @@ class MavlinkMessage:
         self._msg_command_ack = None
         #'MISSION_REQUEST'
         self._msg_mission_request = None
-
+     
         self.messages = {
             'GLOBAL_POSITION_INT'   :self.__read_global_pos_int,
             'SYS_STATUS'            :self.__read_system_status,
@@ -244,6 +244,9 @@ class Drone(MavlinkMessage):
                                     0, 0, 0, 0, 0, 0, 0)
     
     def arm_and_takeoff(self,altitude,auto_mode = True):
+        armable = False
+        while not armable:
+            armable = self.is_armable
         self.set_flight_mode('GUIDED')
         self.arm()
         self.master.mav.command_long_send(0, 0, 
@@ -284,7 +287,7 @@ class Drone(MavlinkMessage):
         msg = None  
         while(msg == None):
             msg = self._msg_mission_count
-        
+
         self._msg_mission_count = None #reset _msg_mission_count once it is read by msg
 
         waypoint_count = msg.count
