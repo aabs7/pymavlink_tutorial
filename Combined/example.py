@@ -4,9 +4,9 @@ import time
 drone = Drone('tcp:127.0.0.1:5762')
 
 time.sleep(1)
-drone.mission_upload()
-print("\r\n")
-print(drone._waypoints)
+
+flight_plan = drone.flight_plan
+print(flight_plan)
 #drone.arm()
 #time.sleep(1)
 #targetAltitude = 10

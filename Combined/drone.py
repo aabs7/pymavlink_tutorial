@@ -210,21 +210,28 @@ class Drone(MavlinkMessage):
     def __init__(self,port):
         #start connection on the given port
         self.master = mavutil.mavlink_connection(port)
+
+        # store waypoints from the command
+        self._waypoints = {}
+        self._home = None
+
         #wait_heartbeat can be called before MavlinkMessage class initialization
         #after MavlinkMessage class initialization, due to thread for reading mavlink message, 
         #it is not advisable to even look for mavlink message inside methods of this class.
         #instead, check for the mavlink message inside MavlinkMessage class by adding the respective message.
         self.master.wait_heartbeat()
-        #set home location
+
+        #set home location when initializing
         msg = self.master.recv_match(type = 'GLOBAL_POSITION_INT',blocking = True)
         self._home = Location(msg.lat*1e-7,msg.lon*1e-7,msg.alt*1e-3,msg.relative_alt*1e-3)
         print("Home location set to lat = ", self._home.lat," lon = ",self._home.lon, "alt = ",self._home.alt)
-        MavlinkMessage.__init__(self,self.master)
-        #list to store all the command currently available in the vehicle
-        self.cmds = []
-        # store waypoints from the command
-        self._waypoints = {}
 
+        #read current mission
+        self.mission_read()
+
+        MavlinkMessage.__init__(self,self.master)
+        
+        
     def set_flight_mode(self,mode):
         mavutil.mavfile.set_mode(self.master,mode,0,0)
         
@@ -284,11 +291,7 @@ class Drone(MavlinkMessage):
         self.master.waypoint_request_list_send()
 
         #wait for receive mavlink msg type MISSION_COUNT
-        msg = None  
-        while(msg == None):
-            msg = self._msg_mission_count
-
-        self._msg_mission_count = None #reset _msg_mission_count once it is read by msg
+        msg = self.master.recv_match(type = ['MISSION_COUNT'],blocking = True)
 
         waypoint_count = msg.count
         print("msg.count:",waypoint_count)
@@ -300,11 +303,7 @@ class Drone(MavlinkMessage):
             self.master.waypoint_request_send(i)
             #wait for receive mavlink msg type MISSION_ITEM 
 
-            msg = None
-            while(msg == None):
-                msg = self._msg_mission_item
-
-            self._msg_mission_item = None  #reset _msg_mission_item once it is read by msg
+            msg = self.master.recv_match(type = ['MISSION_ITEM'],blocking = True)
             
             #commandline is used to store msg in a given format
             commandline="%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (msg.seq,msg.current,msg.frame,msg.command,msg.param1,msg.param2,msg.param3,msg.param4,msg.x,msg.y,msg.z,msg.autocontinue)
@@ -403,6 +402,10 @@ class Drone(MavlinkMessage):
             print(msg)
             self.master.mav.send(wp.wp(msg.seq))
             print('Sending waypoint {0}'.format(msg.seq))
+
+    @property
+    def flight_plan(self):
+        return self._waypoints
 
     @property
     def is_armable(self):
