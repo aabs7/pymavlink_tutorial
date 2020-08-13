@@ -98,7 +98,7 @@ class MavlinkMessage:
             'LOCAL_POSITION_NED'    :self.__read_local_position_ned,
             'HEARTBEAT'             :self.__read_heartbeat,
             'ATTITUDE'              :self.__read_attitude,
-
+            #The variables for mavlink message listed below should be cleared once it is read.
             'MISSION_COUNT'         :self.__read_mission_count,
             'MISSION_ITEM'          :self.__read_mission_item,
             'MISSION_REQUEST'       :self.__read_mission_request,
@@ -210,9 +210,17 @@ class Drone(MavlinkMessage):
     def __init__(self,port):
         #start connection on the given port
         self.master = mavutil.mavlink_connection(port)
+        #wait_heartbeat can be called before MavlinkMessage class initialization
+        #after MavlinkMessage class initialization, due to thread for reading mavlink message, 
+        #it is not advisable to even look for mavlink message inside methods of this class.
+        #instead, check for the mavlink message inside MavlinkMessage class by adding the respective message.
         self.master.wait_heartbeat()
-        self._home = None
+        self._home = Location()
         MavlinkMessage.__init__(self,self.master)
+        #list to store all the command currently available in the vehicle
+        self.cmds = []
+        # store waypoints from the command
+        self._waypoints = {}
 
     def set_flight_mode(self,mode):
         mavutil.mavfile.set_mode(self.master,mode,0,0)
@@ -262,7 +270,7 @@ class Drone(MavlinkMessage):
                         home_location[1], # lon
                         home_location[2])  # alt
 
-    def mission_read(self, file_name = 'mission.txt'):
+    def mission_read(self, file_name = 'mission.txt',store_mission = True):
         #ask for mission count
         self.master.waypoint_request_list_send()
 
@@ -277,7 +285,7 @@ class Drone(MavlinkMessage):
         print("msg.count:",waypoint_count)
 
         output = 'QGC WPL 110\n'
-
+        mission_count = 0
         for i in range(waypoint_count):
             #ask for individual waypoint
             self.master.waypoint_request_send(i)
@@ -293,11 +301,31 @@ class Drone(MavlinkMessage):
             commandline="%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (msg.seq,msg.current,msg.frame,msg.command,msg.param1,msg.param2,msg.param3,msg.param4,msg.x,msg.y,msg.z,msg.autocontinue)
             output += commandline
 
+            #store the waypoints in waypoint dictionary
+            if (msg.command != 22):
+                if(msg.seq != 0):   #i.e not home location
+                    self._waypoints[mission_count] = {
+                        'lat':msg.x,
+                        'lng':msg.y,
+                        'alt':msg.z,
+                        'command':msg.command
+                    }
+                else:               #i.e home location
+                    self._home.lat = msg.x
+                    self._home.lon = msg.y
+                    self._waypoints[mission_count] = {
+                        'lat':self._home.lat,
+                        'lng':self._home.lon
+                    }
+                mission_count += 1
+            
+
         #write to file
         with open(file_name,'w') as file_:
             print("Write mission to file")
             file_.write(output)
-
+        
+        return self._waypoints
     
 
     def mission_upload(self, file_name = 'mission.txt'):
@@ -437,7 +465,7 @@ class Battery():
 
 class Location():
 
-    def __init__(self,lat,lon,alt,altR,north,east,down):
+    def __init__(self,lat=None,lon=None,alt=None,altR=None,north=None,east=None,down=None):
         self.lat = lat
         self.lon = lon
         self.alt = alt
