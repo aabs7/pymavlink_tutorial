@@ -87,6 +87,7 @@ class MavlinkMessage:
         self._msg_command_ack = None
         #'MISSION_REQUEST'
         self._wp = mavwp.MAVWPLoader()
+        self._wp_uploaded = None
         self._msg_mission_request = None
      
         self.messages = {
@@ -200,9 +201,11 @@ class MavlinkMessage:
         self._msg_mission_item = msg
 
     def __read_mission_request(self,msg):
-        print(msg)
-        wp = self._wp.wp(msg.seq)
-        self.master.mav.send(wp)
+
+        if self._wp_uploaded is not None:
+            wp = self._wp.wp(msg.seq)
+            self.master.mav.send(wp)
+            self._wp_uploaded[msg.seq] = True
     
     def __read_command_ack(self,msg):
         self._msg_command_ack = msg
@@ -361,7 +364,7 @@ class Drone(MavlinkMessage):
                     ln_x=float(linearray[8])
                     ln_y=float(linearray[9])
                     ln_z=float(linearray[10])
-                    ln_autocontinue = float(linearray[11].strip())
+                    ln_autocontinue = int(float(linearray[11].strip()))
 
                     #store in waypoints
                     if(ln_command != 22):
@@ -378,7 +381,6 @@ class Drone(MavlinkMessage):
                                                     'lng':ln_y
                                                     }
                         mission_count += 1
-
                     p = mavutil.mavlink.MAVLink_mission_item_message(0, 0, ln_seq, ln_frame,
                                                                     ln_command,
                                                                     ln_current, ln_autocontinue, ln_param1, ln_param2, ln_param3, ln_param4, ln_x, ln_y, ln_z)
@@ -393,19 +395,15 @@ class Drone(MavlinkMessage):
 
         #send waypoint to airframe
         self.master.waypoint_clear_all_send()
-        self.master.waypoint_count_send(self._wp.count())
+        if self._wp.count() > 0:
+            self._wp_uploaded = [False] * self._wp.count()
+            self.master.waypoint_count_send(self._wp.count())
+            while False in self._wp_uploaded:
+                time.sleep(0.1)
+            self._wp_uploaded = None
 
         #From this on, waypoint sending is handled inside MavlinkMessage Class whenever mission request is called
 
-        # for i in range(wp.count()):
-        #     #msg = self.master.recv_match(type=['MISSION_REQUEST'],blocking=True)
-        #     msg = None
-        #     while msg == None:
-        #         msg = self._msg_mission_request
-        #     self._msg_mission_request = None #clear after read
-        #     print(msg)
-        #     self.master.mav.send(self._wp.wp(msg.seq))
-        #     print('Sending waypoint {0}'.format(msg.seq))
 
     @property
     def flight_plan(self):

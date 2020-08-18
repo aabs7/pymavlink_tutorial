@@ -5,7 +5,7 @@ import time
 # Create the connection
 # From topside computer
 
-master = mavutil.mavlink_connection('tcp:192.168.0.21:5762')
+master = mavutil.mavlink_connection('tcp:127.0.0.1:5762')
 
 master.wait_heartbeat()
 
@@ -44,10 +44,10 @@ def uploadmission(aFileName):
                 ln_param2=float(linearray[5])
                 ln_param3=float(linearray[6])
                 ln_param4=float(linearray[7])
-                ln_x=float(linearray[8])
-                ln_y=float(linearray[9])
+                ln_x=(float(linearray[8]))
+                ln_y=(float(linearray[9]))
                 ln_z=float(linearray[10])
-                ln_autocontinue = float(linearray[11].strip())
+                ln_autocontinue = int(float(linearray[11].strip()))
                 if(i == 1):
                     home_location = (ln_x,ln_y)
                     home_altitude = ln_z
@@ -55,21 +55,22 @@ def uploadmission(aFileName):
                                                                 ln_command,
                                                                 ln_current, ln_autocontinue, ln_param1, ln_param2, ln_param3, ln_param4, ln_x, ln_y, ln_z)
                 wp.add(p)
+                
                     
     cmd_set_home(home_location,home_altitude)
     msg = master.recv_match(type = ['COMMAND_ACK'],blocking = True)
     print(msg)
     print('Set home location: {0} {1}'.format(home_location[0],home_location[1]))
     time.sleep(1)
-
+    
     #send waypoint to airframe
     master.waypoint_clear_all_send()
     master.waypoint_count_send(wp.count())
-
     for i in range(wp.count()):
         msg = master.recv_match(type=['MISSION_REQUEST'],blocking=True)
         print(msg)
         master.mav.send(wp.wp(msg.seq))
+        #print(wp.wp(msg.seq))
         print('Sending waypoint {0}'.format(msg.seq))
 
 
