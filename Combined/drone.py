@@ -237,26 +237,41 @@ class Drone(MavlinkMessage):
 
         MavlinkMessage.__init__(self,self.master)
         
-        
+
     def set_flight_mode(self,mode):
+        """Set drone flight mode 
+
+        Args:
+            mode (string): flight mode name such as 'GUIDED','LOITER','RTL'
+        """        
         mavutil.mavfile.set_mode(self.master,mode,0,0)
         
-    
+               
     def arm(self):
+        """Drone arm
+        """        
         self.master.mav.command_long_send(self.master.target_system,
                                     self.master.target_component,
                                     mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
                                     0,
                                     1, 0, 0, 0, 0, 0, 0)
-    
+       
     def disarm(self):
+        """Drone disarm
+        """        
         self.master.mav.command_long_send(self.master.target_system,
                                     self.master.target_component,
                                     mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
                                     0,
                                     0, 0, 0, 0, 0, 0, 0)
-    
+
     def arm_and_takeoff(self,altitude,auto_mode = True):
+        """Drone arm and takeoff
+
+        Args:
+            altitude (integer): altitude in meters(m)
+            auto_mode (bool, optional): continue auto mission after takeoff. Defaults to True.
+        """        
         armable = False
         while not armable:
             armable = self.is_armable
@@ -270,13 +285,21 @@ class Drone(MavlinkMessage):
             self.set_flight_mode('AUTO')
         
     def simple_goto(self,location):
+        """Drone goto a waypoint
+
+        Args:
+            location (Location): Location class with lat,lon and alt
+        """        
         self.master.mav.mission_item_send(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                                            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 2, 0, 0,
                                            0, 0, 0, location.lat, location.lon,
                                            location.alt)
 
     def set_home(self,home_location=None):
-    
+        """Drone set home
+        Args:
+            home_location (Location, optional): If location given, sets that location as home. If not given sets boot position as home. Defaults to None.
+        """        
         if home_location == None:
             home_location = self._home
 
@@ -292,7 +315,13 @@ class Drone(MavlinkMessage):
                         home_location.lon, # lon
                         home_location.alt)  # alt
 
-    def mission_read(self, file_name = 'mission_read.txt',store_mission = True):
+    def mission_read(self, file_name = 'mission_read.txt'):    
+        """Drone current mission read
+
+        Args:
+            file_name (str, optional): File name to store mission into. Defaults to 'mission_read.txt'.
+
+        """                
         #ask for mission count
         self.master.waypoint_request_list_send()
 
@@ -339,10 +368,16 @@ class Drone(MavlinkMessage):
             print("Write mission to file")
             file_.write(output)
         
-        return self._waypoints
-    
-
+     
     def mission_upload(self, file_name = 'mission.txt'):   
+        """Drone mission upload from available mission text file
+
+        Args:
+            file_name (str, optional): File name to upload mission from. Defaults to 'mission.txt'.
+
+        Raises:
+            Exception: Mission file type not supported
+        """        
         #clear waypoints before uploading, so that new waypoints can be added
         self._waypoints.clear()
         mission_count = 0
@@ -407,16 +442,31 @@ class Drone(MavlinkMessage):
 
     @property
     def flight_plan(self):
+        """Drone waypoints in which it will fly
+
+        Returns:
+            [dict]: a dictionary with all the waypoint that drone will fly
+        """        
         return self._waypoints
 
     @property
     def is_armable(self):
+        """Drone condition that whether it is safe to arm or not
+
+        Returns:
+            bool: safe to arm if True , not safe to arm if False
+        """        
         # check that we have a GPS fix
         # check that EKF pre-arm is complete
         return (self._fix_type > 1) and self._ekf_predposhorizabs
 
     @property
     def ekf_ok(self):
+        """Drone EKF Status
+
+        Returns:
+            bool: EKF ok if True, EKF not ok if False
+        """        
         # use same check that ArduCopter::system.pde::position_ok() is using
         if self._armed:
             return self._ekf_poshorizabs and not self._ekf_constposmode
@@ -425,6 +475,11 @@ class Drone(MavlinkMessage):
 
     @property
     def system_status(self):
+        """Drone system status
+
+        Returns:
+            string: The current status of drone. 'BOOT' means drone is booting, 'STANDBY' means drone is in standby mode.
+        """        
         return {
             0: 'UNINIT',
             1: 'BOOT',
@@ -439,45 +494,102 @@ class Drone(MavlinkMessage):
 
     @property
     def is_armed(self):
+        """Arming status of the drone
+
+        Returns:
+            bool: True if armed, False if disarmed
+        """        
         return self._armed
     
     @property
     def flight_mode(self):
+        """Flight mode status of the drone
+
+        Returns:
+            string: 'GUIDED' if in guided mode, 'RTL' if in rtl mode and so on
+        """        
         return self._flightmode
 
     @property
     def heading(self):
+        """Heading of the drone
+
+        Returns:
+            integer: True heading of the drone
+        """        
         return self._heading
     
     @property
     def groundspeed(self):
+        """Ground speed of the drone
+
+        Returns:
+            float: Ground speed of the drone (m/s)
+        """        
         return self._groundspeed
 
     @property
     def airspeed(self):
+        """Airspeed of the drone
+
+        Returns:
+            float: Air speed of the drone (m/s)
+        """        
         return self._airspeed
 
     @property
     def velocity(self):
-        return [self._vx, self._vy, self._vz]
+        """Velocity of the drone in x,y,z frame
+
+        Returns:
+            Velocity: Velocity.vx = velocity in N direction, Velocity.vy = velocity in E direction, Velocity.vz = velocity in U direction
+        """        
+        return Velocity(self._vx, self._vy, self._vz)
     
     @property
     def battery(self):
+        """Battery status of the drone
+
+        Returns:
+            Battery: Battery.voltage = voltage, Battery.current = current , Battery.level = charge percentage
+        """        
         return Battery(self._voltage,self._current,self._level)
 
     @property
     def attitude(self):
+        """Attitude status of the drone
+
+        Returns:
+            Attitude: Attitude.roll = roll, Attitude.pitch = pitch, Attitude.yaw = yaw of the drone
+        """        
         return Attitude(self._roll,self._pitch,self._yaw,self._rollspeed,self._pitchspeed,self._yawspeed)
 
-    @property
+    @property 
     def location(self):
+        """Current Location of the drone
+
+        Returns:
+            Location: Location.lat = latitude
+                      Location.lon = longitude
+                      Location.alt = altitude
+                      Location.altR = relative altitude
+                      Location.north = north in NEU frame
+                      Location.east = east in NEU frame
+                      Location.down = down in NEU frame
+        """        
         return Location(self._lat,self._lon,self._alt,self._relative_alt,self._north,self._east,self._down)
 
     @property
     def gps_0(self):
+        """GPS status of the drone
+        
+        Returns:
+            GPSInfo: GPSInfo.eph = eph of drone, GPSInfo.epv = epv of drone, GPSInfo.fix_type = fix type, GPSInfo.satellites_visible = number of satellites visible 
+        """             
         return(GPSInfo(self._eph,self._epv,self._fix_type,self._satellites_visible))
    
 
+## Classes for drone conditions defined below
 class Battery():
 
     def __init__(self, voltage, current, level):
@@ -494,7 +606,6 @@ class Battery():
         return "Battery:voltage={},current={},level={}".format(self.voltage, self.current,
                                                                self.level)
 
-
 class Location():
 
     def __init__(self,lat=None,lon=None,alt=None,altR=None,north=None,east=None,down=None):
@@ -508,7 +619,6 @@ class Location():
 
     def __str__(self):
         return "LocationGlobal:lat=%s,lon=%s,altR=%s,alt=%s  ||  LocationLocal:north=%s,east=%s,down=%s" % (self.lat, self.lon, self.altR,self.alt,self.north, self.east, self.down)
-
 
 class GPSInfo():
     def __init__(self, eph, epv, fix_type, satellites_visible):
